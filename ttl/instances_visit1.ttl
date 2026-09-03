@@ -1,0 +1,214 @@
+@prefix exp:  <http://example.org/experience-ontology#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix v1:   <http://example.org/experience-ontology/visit1#> .
+
+# One occurrence of "Order a Drink" -- the Worked Example from ontology.md,
+# happy path into a failure at Receive Drink, then a recovery branch.
+# URIs are namespaced per visit (v1:) so a second visit's occurrences never
+# collide with this one, even where they share an rdfs:label.
+#
+# Note on exp:hasParticipation / exp:inTouchpoint: ontology.ttl declares
+# these owl:inverseOf each other, but this data asserts both directions
+# explicitly rather than relying on a reasoner to infer the missing one --
+# scripts/run_competency_questions.py and validate_ontology.py are plain
+# rdflib (no reasoner), and query/check both directions. This is the one
+# place this file accepts asserting the "same" fact twice, traded off
+# against every consumer needing an OWL reasoner just to read participant
+# data back out.
+
+#################################################################
+# Actors (shared across this visit's Participations)
+#################################################################
+
+v1:Customer a exp:Actor ; rdfs:label "Customer" .
+v1:Bartender a exp:Actor ; rdfs:label "Bartender" .
+v1:Host a exp:Actor ; rdfs:label "Host" .
+
+#################################################################
+# Emotions (reusable kinds/labels)
+#################################################################
+
+v1:Hopeful      a exp:Emotion ; rdfs:label "hopeful" .
+v1:Welcoming    a exp:Emotion ; rdfs:label "welcoming" .
+v1:Impatient    a exp:Emotion ; rdfs:label "impatient" .
+v1:Relieved     a exp:Emotion ; rdfs:label "relieved" .
+v1:Attentive    a exp:Emotion ; rdfs:label "attentive" .
+v1:Focused      a exp:Emotion ; rdfs:label "focused" .
+v1:Disappointed a exp:Emotion ; rdfs:label "disappointed" .
+v1:Unaware      a exp:Emotion ; rdfs:label "unaware" .
+v1:Anxious      a exp:Emotion ; rdfs:label "anxious" .
+v1:Apologetic   a exp:Emotion ; rdfs:label "apologetic" .
+v1:Eager        a exp:Emotion ; rdfs:label "eager" .
+
+#################################################################
+# Touchpoint: Order a Drink (root)
+#################################################################
+
+v1:OrderADrink a exp:Touchpoint ;
+    rdfs:label "Order a Drink" ;
+    exp:contains v1:ApproachBar, v1:GetBartendersAttention, v1:PlaceOrder,
+                 v1:DrinkIsMade, v1:ReceiveDrink ;
+    exp:hasExpectation v1:OrderADrink_Expectation .
+
+v1:OrderADrink_Expectation a exp:Expectation ;
+    exp:statement "Customer leaves with the drink they wanted, feeling attended to." ;
+    exp:status exp:Unmet .
+
+#################################################################
+# Touchpoint: Approach Bar
+#################################################################
+
+v1:ApproachBar a exp:Touchpoint ;
+    rdfs:label "Approach Bar" ;
+    exp:next v1:GetBartendersAttention ;
+    exp:hasExpectation v1:ApproachBar_Expectation ;
+    exp:hasParticipation v1:ApproachBar_Customer, v1:ApproachBar_Host .
+
+v1:ApproachBar_Expectation a exp:Expectation ;
+    exp:statement "Finds an open spot within a reasonable wait." ;
+    exp:status exp:Met .
+
+v1:ApproachBar_Customer a exp:Participation ;
+    exp:inTouchpoint v1:ApproachBar ; exp:byActor v1:Customer ; exp:withEmotion v1:Hopeful .
+
+v1:ApproachBar_Host a exp:Participation ;
+    exp:inTouchpoint v1:ApproachBar ; exp:byActor v1:Host ; exp:withEmotion v1:Welcoming .
+
+#################################################################
+# Touchpoint: Get Bartender's Attention
+#################################################################
+
+v1:GetBartendersAttention a exp:Touchpoint ;
+    rdfs:label "Get Bartender's Attention" ;
+    exp:next v1:PlaceOrder ;
+    exp:hasExpectation v1:GetBartendersAttention_Expectation ;
+    exp:hasParticipation v1:GetBartendersAttention_Customer .
+    # Note: the Bartender is deliberately NOT an Actor here -- per exp:Actor's
+    # "actively participates" rule, a Bartender who never engages has no
+    # Participation individual in this Touchpoint at all.
+
+v1:GetBartendersAttention_Expectation a exp:Expectation ;
+    exp:statement "Acknowledged within ~30 seconds." ;
+    exp:status exp:Unmet .
+
+v1:GetBartendersAttention_Customer a exp:Participation ;
+    exp:inTouchpoint v1:GetBartendersAttention ; exp:byActor v1:Customer ; exp:withEmotion v1:Impatient .
+
+#################################################################
+# Touchpoint: Place Order
+#################################################################
+
+v1:PlaceOrder a exp:Touchpoint ;
+    rdfs:label "Place Order" ;
+    exp:next v1:DrinkIsMade ;
+    exp:hasExpectation v1:PlaceOrder_Expectation ;
+    exp:hasParticipation v1:PlaceOrder_Customer, v1:PlaceOrder_Bartender .
+
+v1:PlaceOrder_Expectation a exp:Expectation ;
+    exp:statement "Order understood and confirmed back correctly." ;
+    exp:status exp:Met .
+
+v1:PlaceOrder_Customer a exp:Participation ;
+    exp:inTouchpoint v1:PlaceOrder ; exp:byActor v1:Customer ; exp:withEmotion v1:Relieved .
+
+v1:PlaceOrder_Bartender a exp:Participation ;
+    exp:inTouchpoint v1:PlaceOrder ; exp:byActor v1:Bartender ; exp:withEmotion v1:Attentive .
+
+#################################################################
+# Touchpoint: Drink is Made
+#################################################################
+
+v1:DrinkIsMade a exp:Touchpoint ;
+    rdfs:label "Drink is Made" ;
+    exp:next v1:ReceiveDrink ;
+    exp:hasExpectation v1:DrinkIsMade_Expectation ;
+    exp:hasParticipation v1:DrinkIsMade_Bartender .
+    # Wrong drink made; unnoticed by anyone yet -- no Customer Participation,
+    # since no one was actively present to react.
+
+v1:DrinkIsMade_Expectation a exp:Expectation ;
+    exp:statement "Matches order, correct, reasonable time." ;
+    exp:status exp:Unmet .
+
+v1:DrinkIsMade_Bartender a exp:Participation ;
+    exp:inTouchpoint v1:DrinkIsMade ; exp:byActor v1:Bartender ; exp:withEmotion v1:Focused .
+
+#################################################################
+# Touchpoint: Receive Drink
+#################################################################
+
+v1:ReceiveDrink a exp:Touchpoint ;
+    rdfs:label "Receive Drink" ;
+    exp:contains v1:CustomerFlagsTheMistake, v1:DrinkRemade, v1:ReceiveCorrectedDrink ;
+    exp:hasExpectation v1:ReceiveDrink_Expectation ;
+    exp:hasParticipation v1:ReceiveDrink_Customer, v1:ReceiveDrink_Bartender .
+
+v1:ReceiveDrink_Expectation a exp:Expectation ;
+    exp:statement "Correct drink, clear handoff." ;
+    exp:status exp:Unmet .
+
+v1:ReceiveDrink_Customer a exp:Participation ;
+    exp:inTouchpoint v1:ReceiveDrink ; exp:byActor v1:Customer ; exp:withEmotion v1:Disappointed .
+
+v1:ReceiveDrink_Bartender a exp:Participation ;
+    exp:inTouchpoint v1:ReceiveDrink ; exp:byActor v1:Bartender ; exp:withEmotion v1:Unaware .
+
+#################################################################
+# Touchpoint: Customer Flags the Mistake (recovery branch)
+#################################################################
+
+v1:CustomerFlagsTheMistake a exp:Touchpoint ;
+    rdfs:label "Customer Flags the Mistake" ;
+    exp:next v1:DrinkRemade ;
+    exp:recoversFrom v1:ReceiveDrink ;
+    exp:hasExpectation v1:CustomerFlagsTheMistake_Expectation ;
+    exp:hasParticipation v1:CustomerFlagsTheMistake_Customer, v1:CustomerFlagsTheMistake_Bartender .
+
+v1:CustomerFlagsTheMistake_Expectation a exp:Expectation ;
+    exp:statement "Concern is heard and taken seriously." ;
+    exp:status exp:Met .
+
+v1:CustomerFlagsTheMistake_Customer a exp:Participation ;
+    exp:inTouchpoint v1:CustomerFlagsTheMistake ; exp:byActor v1:Customer ; exp:withEmotion v1:Anxious .
+
+v1:CustomerFlagsTheMistake_Bartender a exp:Participation ;
+    exp:inTouchpoint v1:CustomerFlagsTheMistake ; exp:byActor v1:Bartender ; exp:withEmotion v1:Apologetic .
+
+#################################################################
+# Touchpoint: Drink Remade (recovery branch)
+#################################################################
+
+v1:DrinkRemade a exp:Touchpoint ;
+    rdfs:label "Drink Remade" ;
+    exp:next v1:ReceiveCorrectedDrink ;
+    exp:recoversFrom v1:ReceiveDrink ;
+    exp:hasExpectation v1:DrinkRemade_Expectation ;
+    exp:hasParticipation v1:DrinkRemade_Bartender .
+
+v1:DrinkRemade_Expectation a exp:Expectation ;
+    exp:statement "Corrected quickly and matches order." ;
+    exp:status exp:Met .
+
+v1:DrinkRemade_Bartender a exp:Participation ;
+    exp:inTouchpoint v1:DrinkRemade ; exp:byActor v1:Bartender ; exp:withEmotion v1:Eager .
+
+#################################################################
+# Touchpoint: Receive Corrected Drink (recovery branch)
+#################################################################
+
+v1:ReceiveCorrectedDrink a exp:Touchpoint ;
+    rdfs:label "Receive Corrected Drink" ;
+    exp:recoversFrom v1:ReceiveDrink ;
+    exp:hasExpectation v1:ReceiveCorrectedDrink_Expectation ;
+    exp:hasParticipation v1:ReceiveCorrectedDrink_Customer, v1:ReceiveCorrectedDrink_Bartender .
+
+v1:ReceiveCorrectedDrink_Expectation a exp:Expectation ;
+    exp:statement "Resolution feels genuine, not grudging." ;
+    exp:status exp:Met .
+
+v1:ReceiveCorrectedDrink_Customer a exp:Participation ;
+    exp:inTouchpoint v1:ReceiveCorrectedDrink ; exp:byActor v1:Customer ; exp:withEmotion v1:Relieved .
+
+v1:ReceiveCorrectedDrink_Bartender a exp:Participation ;
+    exp:inTouchpoint v1:ReceiveCorrectedDrink ; exp:byActor v1:Bartender ; exp:withEmotion v1:Relieved .

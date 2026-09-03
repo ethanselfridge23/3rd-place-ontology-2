@@ -1,5 +1,18 @@
 # Cocktail Bar Ordering Experience Ontology
 
+This document is the prose spec: entities, relations, decisions, competency
+questions, and a worked example. The formal implementation lives alongside
+it:
+
+- [`ttl/ontology.ttl`](ttl/ontology.ttl) — the OWL/RDFS TBox (classes,
+  properties, cardinality restrictions) for everything below.
+- [`ttl/instances_visit1.ttl`](ttl/instances_visit1.ttl) — the Worked
+  Example, as actual RDF individuals.
+- [`scripts/`](scripts/) — Python (rdflib) scripts that run the Competency
+  Questions below as executable SPARQL tests against those two files, plus a
+  structural validator and an optional OWL2-RL reasoning demo. See
+  `scripts/README.md` to run them.
+
 ## Purpose
 
 Model the experience of ordering a drink at a cocktail bar so that any moment

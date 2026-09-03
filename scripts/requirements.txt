@@ -1,0 +1,4 @@
+rdflib>=7.0
+
+# Optional, only needed for scripts/materialize_involves.py (demonstrates
+# OWL2 property-chain reasoning over exp:involves): owlrl>=6.0

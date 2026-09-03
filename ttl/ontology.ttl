@@ -1,0 +1,182 @@
+@prefix exp:  <http://example.org/experience-ontology#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+# Ontology header
+#################################################################
+
+<http://example.org/experience-ontology>
+    a owl:Ontology ;
+    rdfs:label "Cocktail Bar Ordering Experience Ontology" ;
+    rdfs:comment "Models the experience of ordering a drink at a cocktail bar as a tree of Touchpoints, each with Actors who actively participate, one Expectation it's judged against, and the Emotion each Actor felt. See ontology.md at the repo root for the prose spec, decision log, and competency questions this file implements." .
+
+#################################################################
+# Classes
+#################################################################
+
+exp:Touchpoint
+    a owl:Class ;
+    rdfs:label "Touchpoint" ;
+    rdfs:comment "A discrete, nameable moment in the experience. May decompose into child Touchpoints via exp:contains. Every individual of this class is one occurrence in one visit -- there is no separate class/type layer; rdfs:label is what groups occurrences of 'the same kind' of moment across different visits." .
+
+exp:Actor
+    a owl:Class ;
+    rdfs:label "Actor" ;
+    rdfs:comment "A participant that actively participates in a Touchpoint (not merely present). Actor is flattened with Role: an Actor's rdfs:label doubles as its role in that Touchpoint, and it is not a permanent type on a person -- the same real person may be modelled as two different, unconnected Actor individuals across different Touchpoints (e.g. 'Bartender' in one, 'Cashier' in another)." .
+
+exp:Expectation
+    a owl:Class ;
+    rdfs:label "Expectation" ;
+    rdfs:comment "The standard a Touchpoint is judged against. Exactly one per Touchpoint (see the cardinality restriction on exp:Touchpoint below). Existence-dependent on its Touchpoint: an Expectation has no identity or reuse apart from the one Touchpoint that has it." .
+
+exp:Emotion
+    a owl:Class ;
+    rdfs:label "Emotion" ;
+    rdfs:comment "How a specific Actor felt during a specific Touchpoint. Emotion individuals themselves are just reusable kinds/labels (e.g. 'relieved'); what scopes an Emotion to one Actor at one Touchpoint is the exp:Participation it's attached to via exp:withEmotion, not the Emotion individual itself." .
+
+exp:Participation
+    a owl:Class ;
+    rdfs:label "Participation" ;
+    rdfs:comment "Reifies one Actor's involvement in one Touchpoint, so an Emotion can attach to the pairing of the two rather than to either endpoint alone (the standard n-ary-relation pattern for an attributed relationship). exp:involves is the derived Touchpoint-to-Actor shortcut over this: exp:hasParticipation then exp:byActor." .
+
+exp:ExpectationStatus
+    a owl:Class ;
+    rdfs:label "Expectation Status" ;
+    rdfs:comment "A closed two-member enumeration: whether an Expectation's standard was satisfied. Modelled as a class with exactly two individuals (exp:Met, exp:Unmet) rather than a bare string, so the value stays a single well-defined axis (see ontology.md, Validation: orthogonal-axes check) and is extensible only by deliberately widening this ontology, not by any client writing an arbitrary string." ;
+    owl:oneOf ( exp:Met exp:Unmet ) .
+
+exp:Met
+    a exp:ExpectationStatus , owl:NamedIndividual ;
+    rdfs:label "Met" .
+
+exp:Unmet
+    a exp:ExpectationStatus , owl:NamedIndividual ;
+    rdfs:label "Unmet" .
+
+#################################################################
+# Object properties
+#################################################################
+
+exp:contains
+    a owl:ObjectProperty ;
+    rdfs:label "contains" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Touchpoint ;
+    rdfs:comment "Direct structural nesting, parent to child, one level. Deliberately NOT declared owl:TransitiveProperty: 'all sub-touchpoints of X' is the transitive closure of this property, computed at query time, never stored redundantly (one fact, one place)." ;
+    owl:inverseOf exp:isDirectChildOf .
+
+exp:isDirectChildOf
+    a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "is direct child of" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Touchpoint ;
+    rdfs:comment "Inverse of exp:contains. Functional: a Touchpoint has at most one direct parent -- the structure is a tree, not a DAG." .
+
+exp:next
+    a owl:ObjectProperty , owl:FunctionalProperty , owl:InverseFunctionalProperty ;
+    rdfs:label "next" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Touchpoint ;
+    rdfs:comment "Points to the following sibling. Only meaningful between two Touchpoints that share a parent via exp:contains -- it orders siblings, it is not a global timeline over the whole tree. Functional (at most one next) and inverse-functional (at most one predecessor), so a sibling group forms a simple chain, never a merge or fork. NOT transitive as stored; 'what comes after X, eventually' is a computed closure, same reasoning as exp:contains." .
+
+exp:recoversFrom
+    a owl:ObjectProperty , owl:IrreflexiveProperty , owl:AsymmetricProperty ;
+    rdfs:label "recovers from" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Touchpoint ;
+    rdfs:comment "Points back to the Touchpoint whose Unmet Expectation triggered this one. A recovery Touchpoint's target must have exp:status exp:Unmet -- not expressible as a plain OWL restriction without a role/status interaction axiom, so this is documented here as a data-quality rule for the validation script (scripts/validate_ontology.py) rather than enforced by the TBox. Can chain (a failed recovery attempt spawning a second recovery), so treat as a directed acyclic path, not a single hop." .
+
+exp:hasParticipation
+    a owl:ObjectProperty ;
+    rdfs:label "has participation" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Participation ;
+    rdfs:comment "Links a Touchpoint to the reified Participation records for its Actors." ;
+    owl:inverseOf exp:inTouchpoint .
+
+exp:inTouchpoint
+    a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "in touchpoint" ;
+    rdfs:domain exp:Participation ;
+    rdfs:range exp:Touchpoint ;
+    rdfs:comment "Inverse of exp:hasParticipation. Functional: each Participation belongs to exactly one Touchpoint." .
+
+exp:byActor
+    a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "by actor" ;
+    rdfs:domain exp:Participation ;
+    rdfs:range exp:Actor ;
+    rdfs:comment "Which Actor this Participation record is for. Functional: each Participation is by exactly one Actor." .
+
+exp:withEmotion
+    a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "with emotion" ;
+    rdfs:domain exp:Participation ;
+    rdfs:range exp:Emotion ;
+    rdfs:comment "The felt Emotion of this Participation's Actor, in this Touchpoint. At most one (functional); optional -- a Participation need not record an Emotion (e.g. no one present to react yet)." .
+
+exp:involves
+    a owl:ObjectProperty ;
+    rdfs:label "involves" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Actor ;
+    rdfs:comment "Derived shortcut for 'which Actors actively participated in this Touchpoint', entailed via the property chain hasParticipation o byActor. Deliberately not asserted directly in instance data -- asserting it as well as the Participation records would duplicate the same fact in two places. A plain rdflib graph (no OWL reasoner) will not materialize this chain; scripts/run_competency_questions.py queries hasParticipation/byActor directly for that reason. Run scripts/materialize_involves.py (uses owlrl) if you want exp:involves triples materialized, e.g. for a SPARQL endpoint that expects them asserted." ;
+    owl:propertyChainAxiom ( exp:hasParticipation exp:byActor ) .
+
+exp:hasExpectation
+    a owl:ObjectProperty , owl:FunctionalProperty , owl:InverseFunctionalProperty ;
+    rdfs:label "has expectation" ;
+    rdfs:domain exp:Touchpoint ;
+    rdfs:range exp:Expectation ;
+    rdfs:comment "The standard this Touchpoint occurrence is judged against. Functional and inverse-functional: exactly one Expectation per Touchpoint, and that Expectation belongs to no other Touchpoint (existence-dependent, per exp:Expectation's comment)." ;
+    owl:inverseOf exp:expectationOf .
+
+exp:expectationOf
+    a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "expectation of" ;
+    rdfs:domain exp:Expectation ;
+    rdfs:range exp:Touchpoint ;
+    rdfs:comment "Inverse of exp:hasExpectation." .
+
+exp:status
+    a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "status" ;
+    rdfs:domain exp:Expectation ;
+    rdfs:range exp:ExpectationStatus ;
+    rdfs:comment "Whether this Expectation's occurrence was satisfied. Functional: exactly one status. See exp:ExpectationStatus for why this is an enumerated class rather than a string." .
+
+#################################################################
+# Datatype properties
+#################################################################
+
+exp:statement
+    a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "statement" ;
+    rdfs:domain exp:Expectation ;
+    rdfs:range xsd:string ;
+    rdfs:comment "The Expectation's standard, in plain language, e.g. 'Acknowledged within ~30 seconds.'" .
+
+# rdfs:label is reused (not reinvented) for Touchpoint.label, Actor.label,
+# and Emotion.label -- see reuse-and-alignment guidance: bias toward
+# borrowing base machinery instead of minting a parallel property.
+
+#################################################################
+# Cardinality restrictions
+#################################################################
+
+exp:Touchpoint rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty exp:hasExpectation ;
+    owl:qualifiedCardinality "1"^^xsd:nonNegativeInteger ;
+    owl:onClass exp:Expectation
+] .
+
+exp:Expectation rdfs:subClassOf [
+    a owl:Restriction ;
+    owl:onProperty exp:status ;
+    owl:qualifiedCardinality "1"^^xsd:nonNegativeInteger ;
+    owl:onClass exp:ExpectationStatus
+] .
