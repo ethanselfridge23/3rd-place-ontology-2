@@ -24,7 +24,12 @@ provenance — see Decision Log, D8.
 
 - **Actor** — a participant that *actively participates* in a Touchpoint
   (not merely present — D3). Actor is flattened with Role: no separate Role
-  entity (D1).
+  entity (D1). This is *not* a permanent type on a person — an Actor only
+  exists scoped to one Touchpoint's `involves` edge, so it doesn't fall into
+  the classic trap of rigidly subclassing a role (e.g. "Bartender" as a fixed
+  kind of person) as if it were a permanent type. The same real person could
+  be a "Bartender" Actor in one Touchpoint and a "Cashier" Actor in another,
+  with no shared identity between the two — that's the accepted cost in D1.
   - `label` (string) — e.g. "Bartender", "Customer".
 
 - **Expectation** — the standard a Touchpoint is judged against. Exactly one
@@ -43,11 +48,36 @@ provenance — see Decision Log, D8.
 
 | Relation | From → To | Cardinality | Meaning |
 |---|---|---|---|
-| `contains` | Touchpoint → Touchpoint | 0..* | Structural nesting (recursive). |
-| `next` | Touchpoint → Touchpoint | 0..1 | Points to the following sibling — orders occurrences within the same parent (D9, closes CQ 5). |
-| `recoversFrom` | Touchpoint → Touchpoint | 0..1 | Points back to the Touchpoint whose Unmet Expectation triggered this one. Only set on recovery Touchpoints (D9, closes CQ 6). |
-| `involves` | Touchpoint → Actor | 0..* | Who actively participated. Each involvement optionally carries one `Emotion` — the Actor's felt state during that Touchpoint. |
-| `has` | Touchpoint → Expectation | exactly 1 | The standard this occurrence is judged against, and whether it was met. |
+| `contains` | Touchpoint → Touchpoint | 0..* | Direct structural nesting (parent→child, one level). |
+| `next` | Touchpoint → Touchpoint | 0..1 | Points to the following sibling. |
+| `recoversFrom` | Touchpoint → Touchpoint | 0..1 | Points back to the Touchpoint whose Unmet Expectation triggered this one. |
+| `involves` | Touchpoint → Actor | 0..* | Who actively participated. |
+| `involves.Emotion` | (Touchpoint, Actor) → Emotion | 0..1 | The Actor's felt state during that specific Touchpoint — an attribute of the *involvement*, not of either endpoint alone. |
+| `has` | Touchpoint → Expectation | exactly 1 | The standard this occurrence is judged against. |
+
+### Relation constraints
+
+Stated explicitly to avoid the "incomplete relation declaration" trap (an algebraic
+property left implicit and assumed inconsistently later):
+
+- **`contains` is not transitive as stored** — it holds only between a Touchpoint
+  and its immediate children. "All sub-touchpoints of X" (CQ 1) is the
+  *transitive closure* of `contains`, computed at query time — never stored
+  redundantly (core principle 3: one fact, one place). Inverse-functional: a
+  Touchpoint has at most one direct parent (the structure is a tree, not a DAG).
+- **`next` is functional and injective**, and only defined between two
+  Touchpoints that share the same parent via `contains` — it orders siblings,
+  it does not create a global timeline across the whole tree. Not transitive as
+  stored; "what comes after X, eventually" is again a computed closure.
+- **`recoversFrom` is irreflexive and not symmetric.** Its target must be a
+  Touchpoint whose `Expectation.status = Unmet` — a recovery Touchpoint always
+  points at a failure. It *can* chain (a failed recovery attempt spawning a
+  second recovery), so treat it as a directed acyclic path, not assume
+  single-hop.
+- **`has` is inverse-functional and existence-dependent**: an Expectation
+  belongs to exactly one Touchpoint and has no identity or reuse apart from it
+  (this is why Expectation stayed a separate construct rather than being
+  flattened into two plain Touchpoint attributes — see Validation).
 
 ## Decision Log
 
@@ -94,21 +124,34 @@ Each entry: the call made, and its accepted cost.
   CQ 6 (recovery linkage). Both optional, both point Touchpoint→Touchpoint.
   *Cost:* `next` only orders siblings under the same parent — no global
   timeline across the whole tree without walking it.
+- **D10 — A parent Touchpoint's `Expectation.status` is independently
+  stipulated, not mechanically derived from its children's statuses.**
+  "Order a Drink" can legitimately be judged Unmet even if every child
+  eventually shows Met (a slow, joyless but technically correct visit), or
+  judged salvaged even with real failures inside it (the service-recovery
+  case in the Worked Example). *Cost:* nothing enforces consistency between
+  a parent's status and its children's — that judgment call is left to
+  whoever populates the instance, which is a deliberate choice (D5's
+  judgment-call pattern extended upward), not an oversight.
 
 ## Competency Questions
 
+Each "Tested" row was actually run against the Worked Example below, not just
+judged answerable in principle (avoids the "untested CQ catalogue"
+anti-pattern — see Validation).
+
 | # | Question | Status |
 |---|---|---|
-| 1 | What are all the sub-touchpoints that make up "Order a Drink"? | Answerable — `contains` |
-| 2 | Which touchpoints does the bartender actively participate in, vs. just the customer? | Answerable — `involves` |
-| 3 | Which touchpoints in a given visit had an unmet Expectation? | Answerable — `Expectation.status` |
-| 4 | What emotion did the customer feel at each touchpoint of a visit? | Answerable — `Emotion` on `involves` |
-| 5 | Where in a visit did the customer's emotion first turn negative? | Answerable — `next` gives ordering to walk |
-| 6 | When a Touchpoint's Expectation goes unmet, what recovery Touchpoint (if any) follows it? | Answerable — `recoversFrom` |
-| 7 | Can a visit have an unmet Expectation but still end with a positive customer Emotion (service recovery)? | Answerable by walking `next` to the last Touchpoint and reading its Emotion — no separate visit-level rollup field. Open: is a rollup ever needed, or is "walk to the end" good enough? |
-| 8 | Which Actor is most often absent from a Touchpoint's Actor set when Expectation is unmet? | Answerable in principle; needs a real population of instances (not just one illustrative visit) to be a meaningful query. |
-| 9 | For a given Touchpoint label (e.g. "Drink is Made"), across many visits, what fraction of occurrences are Unmet? | Answerable — group occurrences by `label`, once multiple visits are populated. |
-| 10 | Does every Touchpoint have exactly one Expectation, even new recovery ones? | Self-consistency check, not stakeholder-facing — run once instances are populated. |
+| 1 | What are all the sub-touchpoints that make up "Order a Drink"? | **Tested** — transitive closure of `contains` over the Worked Example returns all 8 descendant Touchpoints. |
+| 2 | Which touchpoints does the bartender actively participate in, vs. just the customer? | **Tested** — Bartender is in `involves` for Place Order, Drink is Made, Receive Drink, and all three recovery Touchpoints; absent from Approach Bar and Get Bartender's Attention. |
+| 3 | Which touchpoints in a given visit had an unmet Expectation? | **Tested** — Order a Drink (root), Get Bartender's Attention, Drink is Made, Receive Drink. |
+| 4 | What emotion did the customer feel at each touchpoint of a visit? | **Tested** — read directly off `involves.Emotion` for the Customer at each node in the Worked Example. |
+| 5 | Where in a visit did the customer's emotion first turn negative? | **Tested** — walking `next` at the top level: Approach Bar (hopeful) → Get Bartender's Attention (hopeful → impatient) is the first negative turn. |
+| 6 | When a Touchpoint's Expectation goes unmet, what recovery Touchpoint (if any) follows it? | **Tested** — all three recovery Touchpoints carry `recoversFrom → Receive Drink`. |
+| 7 | Can a visit have an unmet Expectation but still end with a positive customer Emotion (service recovery)? | **Tested**, with a correction: "the last Touchpoint" is not a single `next` chain — you have to follow `next` to the last sibling *and then descend into its children* via `contains`, repeating until a node has neither, since the recovery branch is nested under "Receive Drink," not chained after it at the top level. That combined traversal lands on "Receive Corrected Drink" — Customer: relieved — despite two Unmet Expectations earlier in the same visit. |
+| 8 | Which Actor is most often absent from a Touchpoint's Actor set when Expectation is unmet? | Not yet testable — one visit isn't enough data for a meaningful frequency answer; needs a real population. |
+| 9 | For a given Touchpoint label (e.g. "Drink is Made"), across many visits, what fraction of occurrences are Unmet? | Not yet testable — same reason as #8. |
+| 10 | Does every Touchpoint have exactly one Expectation, even new recovery ones? | **Tested** — all 9 nodes in the Worked Example (root + 8 descendants) carry exactly one Expectation. |
 
 ## Worked Example
 
@@ -159,3 +202,57 @@ Order a Drink  [label: "Order a Drink"]
 Reading CQ 7 off this tree: the visit had two Unmet Expectations along the
 way, but the last Touchpoint's Customer Emotion is "relieved" — a concrete
 instance of the service-recovery pattern the model was built to represent.
+
+## Validation
+
+A pass against the anti-pattern catalogue and Gruber's design criteria,
+run against the model as it stands (not asserted, checked):
+
+**Taxonomic/logical checks — clean.** No circularity, no class standing in
+for both a type and one of its instances, no rigid class subsuming an
+anti-rigid role (Actor was checked specifically for this, see its
+definition), no orphaned constructs (Emotion connects via `involves`; all
+four entities and five relations trace back to the core loop), every
+relation's domain/range and algebraic properties are now stated (Relation
+constraints section — this was the one real gap the sweep found, now fixed).
+
+**One deliberate design call surfaced by the sweep, not changed:**
+Expectation could be flattened into two plain attributes on Touchpoint
+(`expectationStatement`, `expectationStatus`) instead of staying a separate
+construct — it has no identity, history, or relations of its own beyond its
+one Touchpoint. Kept as a separate construct anyway, because `has` is
+already declared existence-dependent and inverse-functional (Relation
+constraints), so nothing is lost by the extra construct, and it keeps the
+door open if a future CQ ever needs to reason about Expectations
+independently of their Touchpoint (e.g. "list every distinct Expectation
+statement in use"). Purpose decided this one, not correctness — both are
+valid models (core principle 5).
+
+**Structural/scale anti-patterns — not yet applicable.** Kitchen Sink, Golden
+Hammer, God Object, and Center-of-Excellence risks mostly bite as an
+ontology grows past one team/one use — worth re-running this checklist if
+the model gets consumers beyond this document.
+
+**Process anti-patterns:**
+- *Untested CQ catalogue* — was present (CQs 1–7 and 10 were marked
+  "Answerable" without being run); fixed by actually executing each against
+  the Worked Example (see Competency Questions table).
+- *Silent redundancy between a parent's status and its children's* — a real
+  risk once `Expectation.status` exists at every level of a tree (root and
+  leaves both have it). Resolved by D10: the parent's status is declared
+  independently stipulated, not derived, so it isn't a silently-duplicated
+  fact — it's a distinct fact by design, and that's now recorded rather than
+  implicit.
+- *Orthogonal axes collapsed into one enum* — checked `Expectation.status`
+  specifically for this, since it's the newest formal field: it only
+  encodes one axis (was the standard met), not conflated with severity,
+  confidence, or who judged it. Clean for now; would need revisiting if a
+  future CQ wants "how badly unmet."
+
+**Gruber's five criteria — quick score:** Clarity and coherence are carried
+by the Decision Log (every non-obvious call has a stated rationale and
+cost); extendibility is demonstrated in practice by D9 (added `next` and
+`recoversFrom` without touching the four original entities); minimal
+encoding bias holds — nothing here assumes a particular database or file
+format; minimal ontological commitment holds — D8 explicitly declined
+provenance and agent-actionability layers neither current CQ needs.
